@@ -232,6 +232,25 @@ public class Peripheral extends BluetoothGattCallback {
         return json;
     }
 
+    public JSONObject asJSONObject(String errorMessage, int status, int newState )  {
+
+        JSONObject json = new JSONObject();
+
+        try {
+            json.put("name", device.getName());
+            json.put("id", device.getAddress()); // mac address
+            json.put("errorMessage", errorMessage);
+            json.put("errorCode", status == 133 ? "GATT_ERROR" : ""); // GATT_ERROR
+
+            json.put("androidStatus", status);
+            json.put("androidNewState", newState);
+        } catch (JSONException e) { // this shouldn't happen
+            e.printStackTrace();
+        }
+
+        return json;
+    }
+
     static JSONObject byteArrayToJSON(byte[] bytes) throws JSONException {
         JSONObject object = new JSONObject();
         object.put("CDVType", "ArrayBuffer");
@@ -281,6 +300,9 @@ public class Peripheral extends BluetoothGattCallback {
             if(autoconnect) {
                 gattConnect();
             } else {
+                if (connectCallback != null) {
+                   connectCallback.error(this.asJSONObject("Peripheral Not Connected", status, newState));
+                }
                 disconnect();
             }
         }
