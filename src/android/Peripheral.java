@@ -276,7 +276,13 @@ public class Peripheral extends BluetoothGattCallback {
 
         if (status == BluetoothGatt.GATT_SUCCESS) {
             LOG.d(TAG, "Service discovery ok. status = " + status);
-            Thread.sleep( 1000 );
+           
+            try {
+              Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+
             PluginResult result = new PluginResult(PluginResult.Status.OK, this.asJSONObject(gatt));
             result.setKeepCallback(true);
             connectCallback.sendPluginResult(result);
