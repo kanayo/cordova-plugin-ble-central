@@ -40,6 +40,7 @@ import org.json.JSONObject;
 import org.json.JSONException;
 
 import java.util.*;
+import java.lang.reflect.Method;
 
 public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.LeScanCallback {
     // actions
@@ -47,7 +48,11 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
     private static final String START_SCAN = "startScan";
     private static final String STOP_SCAN = "stopScan";
     private static final String START_SCAN_WITH_OPTIONS = "startScanWithOptions";
-
+    
+    private static final String START_PAIRING = "startPairing";  
+    private static final String START_UNPAIRING = "startUnpairing";  
+    private static final String STOP_PAIRING = "stopPairing";  
+    
     private static final String LIST = "list";
 
     private static final String CONNECT = "connect";
@@ -107,12 +112,18 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
         put(BluetoothAdapter.STATE_TURNING_ON, "turningOn");
     }};
 
+    CallbackContext pairCallback;
+    CallbackContext unpairCallback;
+    BroadcastReceiver pairReceiver;
+
     public void onDestroy() {
         removeStateListener();
+        removePairListener();
     }
 
     public void onReset() {
         removeStateListener();
+        removePairListener();
     }
 
     @Override
@@ -283,6 +294,54 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
             this.reportDuplicates = options.optBoolean("reportDuplicates", false);
             findLowEnergyDevices(callbackContext, serviceUUIDs, -1);
 
+        } else if (action.equals(START_PAIRING)) {
+            
+            removePairListener(); 
+            clearPairCallbacks();
+            
+            this.pairCallback = callbackContext;
+            String macAddress = args.getString(0);
+            String pin = args.getString(1);
+            BluetoothDevice device = bluetoothAdapter.getRemoteDevice(macAddress);  
+                        
+            addPairListener(macAddress, false, pin);
+            
+            if( !device.createBond() ){
+              removePairListener(); 
+              clearPairCallbacks();
+              callbackContext.error( "failed" );              
+            }            
+
+
+        } else if (action.equals(START_UNPAIRING)) {
+
+            removePairListener(); 
+            clearPairCallbacks();
+            
+            this.unpairCallback = callbackContext;
+            String macAddress = args.getString(0);
+            BluetoothDevice device = bluetoothAdapter.getRemoteDevice(macAddress); 
+             
+            addPairListener(macAddress, true, null);
+
+            try {
+              final Class deviceClass = BluetoothDevice.class;
+              final Method removeBondMethod = deviceClass.getMethod("removeBond");
+              removeBondMethod.invoke(device);
+            } catch (Exception e) {
+              removePairListener(); 
+              clearPairCallbacks();
+              callbackContext.error( "failed" );
+            }
+           
+            
+        } else if (action.equals(STOP_PAIRING)) {   
+
+          removePairListener(); 
+          clearPairCallbacks();
+          callbackContext.success();
+  
+
         } else {
 
             validAction = false;
@@ -349,6 +408,110 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
         this.stateCallback = null;
         this.stateReceiver = null;
     }
+
+    private void onBluetoothPair(Intent intent, String macaddress, String pin) {
+      String action = intent.getAction();
+      if( BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
+        BluetoothDevice bluetoothDevice = (BluetoothDevice) intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);                  
+        int bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR);
+        PluginResult result = null;
+        
+        if( this.pairCallback != null && macaddress.equals(bluetoothDevice.getAddress() ) ) {
+					if (bondState == BluetoothDevice.BOND_BONDED) {
+						result = new PluginResult(PluginResult.Status.OK, "paired");
+					} else if( bondState == BluetoothDevice.BOND_NONE || bondState == BluetoothDevice.ERROR ) {
+						result = new PluginResult(PluginResult.Status.ERROR, "not paired");
+          }
+          
+          if( result != null ){
+            this.pairCallback.sendPluginResult(result); 
+            this.pairCallback = null;
+            this.removePairListener();
+          }
+  
+        }
+      } else if(BluetoothDevice.ACTION_PAIRING_REQUEST.equals(action)) {
+
+        if( pin != null ){
+          BluetoothDevice bluetoothDevice = (BluetoothDevice) intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);          
+          bluetoothDevice.setPin(pin.getBytes());
+        }
+      }
+    }
+
+    private void onBluetoothUnpair(Intent intent, String macaddress) {
+      String action = intent.getAction();
+      if( BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action)) {
+        int bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR);
+				BluetoothDevice bluetoothDevice = (BluetoothDevice) intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+        
+        if( this.unpairCallback != null && macaddress.equals(bluetoothDevice.getAddress() ) ){
+          if( bondState == BluetoothDevice.BOND_NONE ){
+            PluginResult result = new PluginResult(PluginResult.Status.OK, "unpaired");
+            
+            this.unpairCallback.sendPluginResult(result); 
+            this.unpairCallback = null;
+            this.removePairListener();
+          }
+  
+        }
+      }
+    }
+
+
+    private void addPairListener(final String macaddress, final Boolean unpair, final String pin) {
+      if (this.pairReceiver == null) {
+        this.pairReceiver = new BroadcastReceiver() {
+          @Override
+          public void onReceive(Context context, Intent intent) { 
+            LOG.i(TAG, "PairListener Callback");
+            if( unpair ){
+              onBluetoothUnpair(intent, macaddress);  
+            } else {
+              onBluetoothPair(intent, macaddress, pin);  
+            }        
+          }
+        };
+      }
+
+      try {
+          IntentFilter intentFilter = new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+          if( pin != null ){
+            intentFilter.addAction(BluetoothDevice.ACTION_PAIRING_REQUEST);
+            intentFilter.setPriority(IntentFilter.SYSTEM_HIGH_PRIORITY - 1);
+          }         
+          
+          webView.getContext().registerReceiver(this.pairReceiver, intentFilter);
+          LOG.i(TAG, "PairListener Callback added");
+      } catch (Exception e) {
+          LOG.e(TAG, "Error registering pair receiver: " + e.getMessage(), e);
+      }
+  }
+
+  private void removePairListener() {
+      if (this.pairReceiver != null) {
+          try {
+              webView.getContext().unregisterReceiver(this.pairReceiver);
+          } catch (Exception e) {
+              LOG.e(TAG, "Error unregistering pair receiver: " + e.getMessage(), e);
+          }
+      }
+      this.pairReceiver = null;
+  }
+
+  private void clearPairCallbacks() {
+    if (this.unpairCallback != null) {
+      PluginResult result = new PluginResult(PluginResult.Status.ERROR, "cancelled");
+      this.unpairCallback.sendPluginResult(result);
+      this.unpairCallback = null;
+    }
+
+    if (this.pairCallback != null) {
+      PluginResult result = new PluginResult(PluginResult.Status.ERROR, "cancelled");
+      this.pairCallback.sendPluginResult(result);
+      this.pairCallback = null;
+    }
+  }
 
     private void connect(CallbackContext callbackContext, String macAddress) {
         if (!peripherals.containsKey(macAddress) && BLECentralPlugin.this.bluetoothAdapter.checkBluetoothAddress(macAddress)) {

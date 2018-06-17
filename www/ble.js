@@ -181,6 +181,18 @@ module.exports = {
 
     stopStateNotifications: function (success, failure) {
         cordova.exec(success, failure, "BLE", "stopStateNotifications", []);
+    },
+    
+    startPairing: function (device_id, pin, success, failure) {
+      cordova.exec(success, failure, "BLE", "startPairing", [device_id, pin]);
+    },
+
+    startUnpairing: function (device_id, success, failure) {
+      cordova.exec(success, failure, "BLE", "startUnpairing", [device_id]);
+    },
+
+    stopPairing: function (success, failure) {
+      cordova.exec(success, failure, "BLE", "stopPairing", []);
     }
 
 };
