@@ -430,11 +430,15 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
           }
   
         }
-      } else if(BluetoothDevice.ACTION_PAIRING_REQUEST.equals(action)) {
+      } else if( BluetoothDevice.ACTION_PAIRING_REQUEST.equals(action) ) {
 
-        if( pin != null ){
+        int type = intent.getIntExtra(BluetoothDevice.EXTRA_PAIRING_VARIANT, BluetoothDevice.ERROR);
+        
+        if( pin != null && type == BluetoothDevice.PAIRING_VARIANT_PIN) {        
+          LOG.i(TAG, "Setting PIN");
           BluetoothDevice bluetoothDevice = (BluetoothDevice) intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);          
           bluetoothDevice.setPin(pin.getBytes());
+          this.pairReceiver.abortBroadcast();
         }
       }
     }
@@ -464,7 +468,7 @@ public class BLECentralPlugin extends CordovaPlugin implements BluetoothAdapter.
         this.pairReceiver = new BroadcastReceiver() {
           @Override
           public void onReceive(Context context, Intent intent) { 
-            LOG.i(TAG, "PairListener Callback");
+            
             if( unpair ){
               onBluetoothUnpair(intent, macaddress);  
             } else {
