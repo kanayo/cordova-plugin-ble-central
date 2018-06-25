@@ -278,7 +278,7 @@ public class Peripheral extends BluetoothGattCallback {
             LOG.d(TAG, "Service discovery ok. status = " + status);
            
             try {
-              Thread.sleep(100);
+              Thread.sleep(500);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
